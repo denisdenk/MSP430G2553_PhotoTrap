@@ -1,1 +1,1 @@
-# MSP430G2553_PhotoTrap
+# Photo trap based on MSP430G2553
