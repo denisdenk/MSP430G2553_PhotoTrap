@@ -1,6 +1,7 @@
 #include <msp430.h>
 #include <stdint.h>
 
+
 // UART (For debug) P1.1 P1.2
 #define RXD     BIT1
 #define TXD     BIT2
@@ -10,6 +11,8 @@
 #define RELAY   BIT5
 // SR501 sensor P1.6
 #define SR501   BIT6
+// MOSFET Light
+#define LIGHT   BIT7
 
 // Private function prototypes
 void System_Init(void);
@@ -21,13 +24,13 @@ void delay_ms(uint16_t ms);
 // Private variable
 volatile uint32_t i;
 volatile uint16_t count;
-uint8_t interrutp_sr501_flag = 0;
+uint8_t interrupt_sr501_flag = 0;
 
 
 // Interrupt vector (Rising front of SR501)
 #pragma vector=PORT1_VECTOR
 __interrupt void Port1(void) {
-    interrutp_sr501_flag = 1;                   // Set flag
+    interrupt_sr501_flag = 1;                   // Set flag
     __bic_SR_register_on_exit(LPM4_bits);       // Wake UP
     P1IFG &=~SR501;                             // Clearing interrupt flag
 }
@@ -49,13 +52,13 @@ void main(void) {
     GPIO_Init();
     UART_Init();
     __enable_interrupt();
-    _BIS_SR(LPM4_bits + GIE); // Enter LPM4
 
-    // Start
+    _BIS_SR(LPM4_bits + GIE); // Enter LPM4 (sleep)
+
     UART_Print("Start\r\n");
     for(;;) {
-        if(interrutp_sr501_flag) {
-            interrutp_sr501_flag = 0;
+        if(interrupt_sr501_flag) {
+            interrupt_sr501_flag = 0;
             UART_Print("Interrupt!\r\n");
 
             P1OUT |= RELAY;     // Turn ON camera
@@ -64,8 +67,9 @@ void main(void) {
             delay_ms(1000);
             P1OUT &= ~SHUTTER;  // Take photo
             delay_ms(200);
-            P1OUT |= SHUTTER;   // Release Shutter and Focus button
-            P1OUT |= FOCUS;
+            P1OUT |= SHUTTER;   // Release Shutter
+            delay_ms(200);
+            P1OUT |= FOCUS;     //... and Focus button
 
             delay_ms(5000);     // Delay time for save img
             P1OUT &= ~RELAY;    // Turn OFF camera
@@ -99,14 +103,16 @@ void GPIO_Init(void) {
     P1DIR |= FOCUS;
     P1DIR |= SHUTTER;
     P1DIR |= RELAY;
+    P1DIR |= LIGHT;
 
     P1OUT |= FOCUS;
     P1OUT |= SHUTTER;
     P1OUT &= ~RELAY;
+    P1OUT &= ~LIGHT;
 
     // Interrupt pin for SR501
     P1DIR &= ~SR501;                        // HiZ mode
-    P1REN |= SR501;
+    P1REN |= SR501;                         // Pull resistor
     P1IES &= ~SR501;                        // Rising front
     P1IFG &= ~SR501;                        // Interrupt flag clearing
     P1IE |= SR501;                          // Enable external interrupt
@@ -126,7 +132,7 @@ void UART_Init(void) {
 }
 
 void UART_Print(char* tx_data) {
-    unsigned int i=0;
+    uint16_t i=0;
     while(tx_data[i]) {
         while ((UCA0STAT & UCBUSY));        // Wait if line TX/RX module is busy with data
         UCA0TXBUF = tx_data[i];             // Send out element i of tx_data array on UART bus
